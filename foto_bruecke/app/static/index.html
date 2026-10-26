@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Foto-Brücke</title>
+<style>
+:root{
+  --bg:#f4f5f7;--card:#fff;--text:#1c1f23;--muted:#6b7280;--line:#e3e6ea;
+  --accent:#03a9f4;--accent-ink:#fff;--ok:#2e9d5b;--warn:#d98a00;--bad:#d64545;
+  --sel:#03a9f4;--shadow:0 1px 2px rgba(0,0,0,.06),0 2px 8px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#111315;--card:#1c1f23;--text:#e9ebee;--muted:#9aa1ab;--line:#2c3036;
+  --accent:#29b6f6;--accent-ink:#06131a;--ok:#4cc480;--warn:#f0a92a;--bad:#ef6767;
+  --shadow:none;
+}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--text);
+  font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+button{font:inherit;color:inherit}
+header{position:sticky;top:0;z-index:5;background:var(--bg);padding:12px 16px 0;
+  padding-top:max(12px,env(safe-area-inset-top))}
+.top{display:flex;align-items:center;gap:10px}
+.top h1{font-size:20px;margin:0;flex:1;letter-spacing:-.01em}
+.tabs{display:flex;gap:4px;background:var(--line);border-radius:10px;padding:3px;margin:12px 0 10px}
+.tabs button{flex:1;border:0;background:transparent;padding:8px;border-radius:8px;font-weight:600;color:var(--muted)}
+.tabs button.on{background:var(--card);color:var(--text);box-shadow:var(--shadow)}
+main{padding:4px 16px 120px;max-width:900px;margin:0 auto}
+.card{background:var(--card);border-radius:14px;padding:16px;box-shadow:var(--shadow);margin-bottom:12px}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:0;border-radius:12px;
+  padding:14px;font-weight:600;background:var(--accent);color:var(--accent-ink);cursor:pointer}
+.btn.sec{background:transparent;color:var(--accent);border:1.5px solid var(--line)}
+.btn.small{width:auto;padding:8px 12px;border-radius:9px;font-size:14px}
+.btn.danger{background:transparent;color:var(--bad);border:1.5px solid var(--line)}
+.btn:disabled{opacity:.5}
+.hint{color:var(--muted);font-size:13.5px;margin:10px 2px 0}
+.hint b{color:var(--text)}
+ol.steps{margin:8px 0 0;padding-left:20px;color:var(--muted);font-size:13.5px}
+.row{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.row .n{flex:1;min-width:0}
+.row .n div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .s{font-size:13px;color:var(--muted)}
+.row img{width:44px;height:44px;border-radius:8px;object-fit:cover;background:var(--line);flex:none}
+.bar{height:4px;background:var(--line);border-radius:2px;margin-top:6px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .2s}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.day{margin:18px 0 8px;display:flex;align-items:baseline;gap:8px}
+.day h2{font-size:16px;margin:0;flex:1}
+.day .c{color:var(--muted);font-size:13px}
+.day a,.day button.link{color:var(--accent);font-size:13.5px;text-decoration:none;background:none;border:0;padding:0;cursor:pointer}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:3px}
+.tile{position:relative;aspect-ratio:1;background:var(--line);border-radius:4px;overflow:hidden;cursor:pointer;border:0;padding:0}
+.tile img{width:100%;height:100%;object-fit:cover;display:block}
+.tile .b{position:absolute;left:5px;bottom:5px;font-size:11px;font-weight:600;color:#fff;
+  background:rgba(0,0,0,.55);border-radius:5px;padding:1px 5px}
+.tile .w{position:absolute;right:5px;bottom:5px;font-size:11px;font-weight:700;color:#fff;
+  background:var(--warn);border-radius:5px;padding:1px 5px}
+.tile .chk{position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:50%;
+  border:2px solid #fff;background:rgba(0,0,0,.25);display:none}
+body.selecting .tile .chk{display:block}
+.tile.sel .chk{background:var(--sel);border-color:#fff}
+.tile.sel .chk::after{content:"";position:absolute;left:7px;top:3px;width:6px;height:11px;
+  border:solid #fff;border-width:0 2.5px 2.5px 0;transform:rotate(45deg)}
+.tile.sel img{opacity:.75}
+.empty{text-align:center;color:var(--muted);padding:40px 10px}
+.actions{position:fixed;left:0;right:0;bottom:0;z-index:8;background:var(--card);border-top:1px solid var(--line);
+  padding:10px 16px;padding-bottom:max(10px,env(safe-area-inset-bottom));display:none;gap:8px;align-items:center}
+.actions.on{display:flex}
+.actions .info{flex:1;font-size:14px}
+.actions .info small{display:block;color:var(--muted);font-size:12px}
+.viewer{position:fixed;inset:0;z-index:20;background:var(--bg);display:none;flex-direction:column}
+.viewer.on{display:flex}
+.viewer .vt{display:flex;align-items:center;gap:8px;padding:10px 12px;padding-top:max(10px,env(safe-area-inset-top))}
+.viewer .vt .t{flex:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.iconbtn{border:0;background:var(--line);width:36px;height:36px;border-radius:50%;font-size:18px;cursor:pointer;flex:none}
+.viewer .media{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:#000}
+.viewer .media img,.viewer .media video{max-width:100%;max-height:100%;object-fit:contain}
+.viewer .det{padding:12px 16px;padding-bottom:max(12px,env(safe-area-inset-bottom))}
+.det dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0 0 12px;font-size:14px}
+.det dt{color:var(--muted)}.det dd{margin:0}
+.det a{color:var(--accent)}
+.det .btns{display:flex;gap:8px}
+.det .btns .btn{flex:1}
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);z-index:30;background:var(--text);color:var(--bg);
+  padding:10px 14px;border-radius:10px;font-size:14px;max-width:calc(100% - 32px);opacity:0;pointer-events:none;transition:opacity .2s}
+.toast.on{opacity:1}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1>Foto-Brücke</h1>
+    <button id="selBtn" class="btn sec small hidden">Auswählen</button>
+  </div>
+  <div class="tabs">
+    <button data-tab="up">Hochladen</button>
+    <button data-tab="gal">Galerie</button>
+  </div>
+</header>
+
+<main>
+  <section id="tab-up" class="hidden">
+    <div class="card">
+      <button class="btn" id="pickDocs">Fotos aus „Dateien“ wählen</button>
+      <ol class="steps">
+        <li>Im nächsten Fenster <b>☰ → Bilder</b> oder <b>Interner Speicher → DCIM → Camera</b> öffnen.</li>
+        <li>Fotos lange antippen und mehrere markieren, dann <b>Auswählen</b>.</li>
+      </ol>
+      <p class="hint">So bleibt der <b>Ort</b> erhalten. Die normale Galerie-Auswahl von Android entfernt ihn aus Datenschutzgründen.</p>
+      <button class="btn sec" id="pickGallery" style="margin-top:12px">Aus Galerie wählen (evtl. ohne Ort)</button>
+      <input type="file" id="fileDocs" multiple hidden>
+      <input type="file" id="fileGallery" accept="image/*,video/*" multiple hidden>
+    </div>
+    <div class="card hidden" id="queueCard"><div id="queue"></div></div>
+  </section>
+
+  <section id="tab-gal" class="hidden">
+    <div id="gallery"></div>
+  </section>
+</main>
+
+<div class="actions" id="actions">
+  <div class="info"><span id="selCount">0 ausgewählt</span><small id="selState"></small></div>
+  <button class="btn danger small" id="delSel">Löschen</button>
+  <button class="btn small" id="saveSel" disabled>Sichern</button>
+</div>
+
+<div class="viewer" id="viewer">
+  <div class="vt">
+    <button class="iconbtn" id="vClose" aria-label="Schließen">✕</button>
+    <div class="t" id="vTitle"></div>
+    <button class="iconbtn" id="vPrev" aria-label="Vorheriges">‹</button>
+    <button class="iconbtn" id="vNext" aria-label="Nächstes">›</button>
+  </div>
+  <div class="media" id="vMedia"></div>
+  <div class="det">
+    <dl id="vInfo"></dl>
+    <div class="btns">
+      <button class="btn danger small" id="vDel">Löschen</button>
+      <button class="btn sec small" id="vOrig">Original</button>
+      <button class="btn small" id="vSave" disabled>Sichern</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const ua = navigator.userAgent;
+const isIOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isAndroid = /Android/.test(ua);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtSize = b => b > 1e9 ? (b/1e9).toFixed(1)+" GB" : b > 1e6 ? (b/1e6).toFixed(1)+" MB" : Math.max(1, Math.round(b/1e3))+" kB";
+const fmtDur = s => { s = Math.round(+s || 0); return Math.floor(s/60) + ":" + String(s%60).padStart(2,"0"); };
+const dayFmt = new Intl.DateTimeFormat("de-DE", {weekday:"long", day:"numeric", month:"long", year:"numeric"});
+// Uhrzeit so anzeigen, wie sie am Aufnahmeort war (Offset aus der Datei)
+function localParts(iso){
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(iso || "");
+  return m ? {date:`${+m[3]}.${+m[2]}.${m[1]}`, time:`${m[4]}:${m[5]}`, off: iso.slice(19)} : null;
+}
+
+let items = [], byId = new Map(), selected = new Set(), selecting = false;
+const prepared = new Map();   // id -> Promise<File>
+const ready = new Map();      // id -> File
+
+function toast(msg, ms = 3200){
+  const t = $("#toast"); t.textContent = msg; t.classList.add("on");
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("on"), ms);
+}
+
+// ------------------------------------------------------------- Tabs
+function showTab(name){
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === name));
+  $("#tab-up").classList.toggle("hidden", name !== "up");
+  $("#tab-gal").classList.toggle("hidden", name !== "gal");
+  $("#selBtn").classList.toggle("hidden", name !== "gal" || !items.length);
+  if (name === "gal") loadItems();
+  else setSelecting(false);
+}
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => showTab(b.dataset.tab));
+
+// ------------------------------------------------------------- Upload
+$("#pickDocs").onclick = () => $("#fileDocs").click();
+$("#pickGallery").onclick = () => $("#fileGallery").click();
+$("#fileDocs").onchange = e => enqueue(e.target.files, e.target);
+$("#fileGallery").onchange = e => enqueue(e.target.files, e.target);
+
+const queue = []; let running = 0;
+function enqueue(fileList, input){
+  const files = [...fileList]; input.value = "";
+  if (!files.length) return;
+  $("#queueCard").classList.remove("hidden");
+  for (const f of files){
+    const row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML = `<img alt=""><div class="n"><div>${esc(f.name)}</div>
+      <div class="s">${fmtSize(f.size)} · wartet</div><div class="bar"><i></i></div></div>`;
+    $("#queue").prepend(row);
+    queue.push({f, row});
+  }
+  pump();
+}
+function pump(){
+  while (running < 2 && queue.length){ running++; upload(queue.shift()).finally(() => { running--; pump(); }); }
+}
+function upload({f, row}){
+  return new Promise(resolve => {
+    const s = row.querySelector(".s"), bar = row.querySelector(".bar i");
+    const fd = new FormData();
+    fd.append("lastModified", String(f.lastModified || ""));
+    fd.append("file", f, f.name);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "api/upload");
+    xhr.upload.onprogress = e => { if (e.lengthComputable){ bar.style.width = (e.loaded/e.total*100)+"%"; s.textContent = `${fmtSize(f.size)} · ${Math.round(e.loaded/e.total*100)} %`; } };
+    xhr.onload = () => {
+      row.querySelector(".bar").remove();
+      if (xhr.status !== 200){ s.innerHTML = `<span class="bad">Fehler: ${esc(xhr.responseText || xhr.status)}</span>`; return resolve(); }
+      const {item, duplicate} = JSON.parse(xhr.responseText);
+      if (item.thumb) row.querySelector("img").src = `api/thumb/${item.id}`;
+      const p = localParts(item.taken);
+      const parts = [p ? `${p.date} ${p.time}` : `<span class="warn">kein Datum</span>`];
+      parts.push(item.lat != null ? `<span class="ok">Ort ✓</span>` : `<span class="warn">kein Ort</span>`);
+      if (duplicate) parts.push("schon vorhanden");
+      s.innerHTML = parts.join(" · ");
+      if (item.lat == null && !duplicate){
+        const n = document.createElement("div"); n.className = "s warn";
+        n.innerHTML = `Ohne Ort hochgeladen. <button class="btn sec small" style="display:inline;margin-left:4px;padding:2px 8px">Entfernen</button>`;
+        n.querySelector("button").onclick = async () => { await del([item.id]); row.remove(); toast("Entfernt – bitte über „Dateien“ erneut hochladen"); };
+        row.querySelector(".n").append(n);
+      }
+      items = []; resolve();
+    };
+    xhr.onerror = () => { s.innerHTML = `<span class="bad">Verbindung abgebrochen</span>`; resolve(); };
+    xhr.send(fd);
+  });
+}
+
+// ------------------------------------------------------------- Galerie
+async function loadItems(){
+  const r = await fetch("api/items", {cache: "no-store"});
+  const data = await r.json();
+  items = data.items; byId = new Map(items.map(i => [i.id, i]));
+  for (const id of [...selected]) if (!byId.has(id)) selected.delete(id);
+  render();
+}
+function render(){
+  const g = $("#gallery");
+  $("#selBtn").classList.toggle("hidden", !items.length || $("#tab-gal").classList.contains("hidden"));
+  if (!items.length){ g.innerHTML = `<div class="empty">Noch keine Fotos.<br>Lade sie im Reiter „Hochladen“ vom Android hoch.</div>`; updateActions(); return; }
+  const days = new Map();
+  for (const it of items){ if (!days.has(it.day)) days.set(it.day, []); days.get(it.day).push(it); }
+  g.innerHTML = "";
+  for (const [day, list] of days){
+    const [y, m, d] = day.split("-").map(Number);
+    const head = document.createElement("div"); head.className = "day";
+    head.innerHTML = `<h2>${dayFmt.format(new Date(y, m-1, d))}</h2><span class="c">${list.length}</span>
+      <button class="link">Alle</button>`;
+    head.querySelector("button").onclick = () => {
+      setSelecting(true);
+      const all = list.every(i => selected.has(i.id));
+      list.forEach(i => all ? selected.delete(i.id) : selected.add(i.id));
+      syncTiles(); updateActions();
+    };
+    const grid = document.createElement("div"); grid.className = "grid";
+    for (const it of list){
+      const t = document.createElement("button"); t.className = "tile"; t.dataset.id = it.id;
+      t.innerHTML = (it.thumb ? `<img loading="lazy" src="api/thumb/${it.id}" alt="">` : "")
+        + (it.kind === "video" ? `<span class="b">▶ ${fmtDur(it.duration)}</span>` : "")
+        + ((it.warnings || []).includes("ort") ? `<span class="w" title="Kein Ort">kein Ort</span>` : "")
+        + `<span class="chk"></span>`;
+      t.onclick = () => selecting ? toggle(it.id) : openViewer(it.id);
+      let lp; t.addEventListener("touchstart", () => { lp = setTimeout(() => { setSelecting(true); toggle(it.id, true); lp = null; }, 500); }, {passive:true});
+      t.addEventListener("touchend", e => { if (lp === null) e.preventDefault(); clearTimeout(lp); });
+      t.addEventListener("touchmove", () => clearTimeout(lp), {passive:true});
+      grid.append(t);
+    }
+    g.append(head, grid);
+  }
+  syncTiles(); updateActions();
+}
+function syncTiles(){ document.querySelectorAll(".tile").forEach(t => t.classList.toggle("sel", selected.has(t.dataset.id))); }
+function setSelecting(on){
+  selecting = on; document.body.classList.toggle("selecting", on);
+  $("#selBtn").textContent = on ? "Fertig" : "Auswählen";
+  if (!on){ selected.clear(); syncTiles(); }
+  updateActions();
+}
+$("#selBtn").onclick = () => setSelecting(!selecting);
+function toggle(id, force){
+  if (force === true || !selected.has(id)) selected.add(id); else selected.delete(id);
+  syncTiles(); updateActions();
+}
+
+// ------------------------------------------------------------- Vorbereiten & Sichern
+// iOS erlaubt das Teilen-Menü nur direkt nach einem Fingertipp. Darum werden die
+// Dateien schon beim Auswählen geladen, damit „Sichern“ sofort teilen kann.
+function prepare(id){
+  if (!prepared.has(id)){
+    const it = byId.get(id);
+    const p = fetch(`api/ios/${id}`).then(r => { if (!r.ok) throw new Error(r.status); return r.blob(); })
+      .then(b => { const f = new File([b], it.name, {type: b.type || "application/octet-stream", lastModified: Date.parse(it.taken) || Date.now()}); ready.set(id, f); return f; })
+      .catch(e => { prepared.delete(id); throw e; });
+    prepared.set(id, p);
+  }
+  return prepared.get(id);
+}
+let prepGen = 0;
+async function updateActions(){
+  const n = selected.size;
+  $("#actions").classList.toggle("on", selecting);
+  $("#selCount").textContent = n === 1 ? "1 ausgewählt" : `${n} ausgewählt`;
+  const ids = [...selected];
+  const total = ids.reduce((s, id) => s + (byId.get(id)?.size || 0), 0);
+  const btn = $("#saveSel");
+  if (!n){ btn.disabled = true; $("#selState").textContent = ""; return; }
+  if (total > 1.5e9){ btn.disabled = true; $("#selState").textContent = `${fmtSize(total)} – bitte weniger auswählen`; return; }
+  const gen = ++prepGen;
+  const done = () => ids.filter(id => ready.has(id)).length;
+  const show = () => { if (gen !== prepGen) return;
+    const k = done(); btn.disabled = k < n;
+    $("#selState").textContent = k < n ? `Wird vorbereitet … ${k}/${n}` : fmtSize(total);
+    btn.textContent = "Sichern"; };
+  show();
+  await Promise.allSettled(ids.map(id => prepare(id).then(show)));
+  show();
+}
+async function saveFiles(ids){
+  const files = ids.map(id => ready.get(id)).filter(Boolean);
+  if (!files.length) return;
+  if (navigator.canShare && navigator.canShare({files})){
+    try { await navigator.share({files}); }
+    catch (e){ if (e.name !== "AbortError") toast("Teilen fehlgeschlagen: " + e.message); }
+    return;
+  }
+  // Fallback: einzeln herunterladen (landet in „Dateien“)
+  for (const f of files){
+    const a = document.createElement("a"); a.href = URL.createObjectURL(f); a.download = f.name;
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    await new Promise(r => setTimeout(r, 400));
+  }
+  toast(isIOS ? "Heruntergeladen. In „Dateien“ öffnen → Teilen → „Bild sichern“. Tipp: Seite in Safari öffnen, dann geht es direkt."
+              : "Heruntergeladen.", 6000);
+}
+$("#saveSel").onclick = () => saveFiles([...selected]);
+
+async function del(ids){
+  await fetch("api/delete", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ids})});
+  ids.forEach(id => { selected.delete(id); prepared.delete(id); ready.delete(id); });
+}
+$("#delSel").onclick = async () => {
+  const n = selected.size; if (!n) return;
+  if (!confirm(`${n} ${n === 1 ? "Datei" : "Dateien"} auf dem Server löschen?`)) return;
+  await del([...selected]); await loadItems(); toast("Gelöscht");
+};
+
+// ------------------------------------------------------------- Einzelansicht
+let vId = null;
+function openViewer(id){
+  vId = id; const it = byId.get(id); if (!it) return;
+  $("#viewer").classList.add("on"); document.body.style.overflow = "hidden";
+  $("#vTitle").textContent = it.name;
+  const media = $("#vMedia");
+  media.innerHTML = it.kind === "video"
+    ? `<video controls playsinline preload="metadata" poster="api/thumb/${id}?size=big" src="api/original/${id}?inline=1"></video>`
+    : `<img src="api/thumb/${id}?size=big" alt="">`;
+  const p = localParts(it.taken);
+  const src = {"Dateiname":" (aus Dateiname)", "Dateidatum":" (nur Dateidatum)"}[it.taken_source] || "";
+  const maps = it.lat != null
+    ? (isIOS ? `https://maps.apple.com/?ll=${it.lat},${it.lon}&q=Foto` : `https://www.openstreetmap.org/?mlat=${it.lat}&mlon=${it.lon}#map=16/${it.lat}/${it.lon}`)
+    : null;
+  $("#vInfo").innerHTML =
+    `<dt>Aufnahme</dt><dd>${p ? `${p.date}, ${p.time} Uhr <span style="color:var(--muted)">UTC${esc(p.off)}</span>${src}` : `<span class="warn">unbekannt</span>`}</dd>`
+    + `<dt>Ort</dt><dd>${maps ? `<a href="${maps}" target="_blank" rel="noopener">${(+it.lat).toFixed(5)}, ${(+it.lon).toFixed(5)}</a>` : `<span class="warn">nicht vorhanden</span>`}</dd>`
+    + (it.camera ? `<dt>Kamera</dt><dd>${esc(it.camera)}</dd>` : "")
+    + `<dt>Größe</dt><dd>${fmtSize(it.size)}${it.kind === "video" ? " · " + fmtDur(it.duration) : ""}</dd>`;
+  const b = $("#vSave"); b.disabled = !ready.has(id); b.textContent = ready.has(id) ? "Sichern" : "Lädt …";
+  prepare(id).then(() => { if (vId === id){ b.disabled = false; b.textContent = "Sichern"; } })
+             .catch(() => { if (vId === id) b.textContent = "Fehler"; });
+  const idx = items.findIndex(i => i.id === id);
+  $("#vPrev").disabled = idx <= 0; $("#vNext").disabled = idx >= items.length - 1;
+}
+function closeViewer(){ $("#viewer").classList.remove("on"); $("#vMedia").innerHTML = ""; document.body.style.overflow = ""; vId = null; }
+$("#vClose").onclick = closeViewer;
+$("#vPrev").onclick = () => { const i = items.findIndex(x => x.id === vId); if (i > 0) openViewer(items[i-1].id); };
+$("#vNext").onclick = () => { const i = items.findIndex(x => x.id === vId); if (i < items.length-1) openViewer(items[i+1].id); };
+$("#vSave").onclick = () => saveFiles([vId]);
+$("#vOrig").onclick = () => { const a = document.createElement("a"); a.href = `api/original/${vId}`; a.download = byId.get(vId).name; document.body.append(a); a.click(); a.remove(); };
+$("#vDel").onclick = async () => { if (!confirm("Diese Datei auf dem Server löschen?")) return; await del([vId]); closeViewer(); await loadItems(); toast("Gelöscht"); };
+document.addEventListener("keydown", e => { if (!vId) return; if (e.key === "Escape") closeViewer(); if (e.key === "ArrowLeft") $("#vPrev").click(); if (e.key === "ArrowRight") $("#vNext").click(); });
+
+// ------------------------------------------------------------- Start
+showTab(isAndroid ? "up" : "gal");
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+configuration:
+  keep_days:
+    name: Aufbewahrung (Tage)
+    description: Fotos nach so vielen Tagen automatisch löschen. 0 = nie löschen.
+  timezone:
+    name: Zeitzone
+    description: Leer lassen, um die Zeitzone von Home Assistant zu verwenden (z. B. Europe/Berlin).
