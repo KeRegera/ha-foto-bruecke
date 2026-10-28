@@ -1,0 +1,40 @@
+plugins {
+    id 'com.android.application'
+}
+
+def buildNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
+
+android {
+    namespace 'de.keregera.fotobruecke'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'de.keregera.fotobruecke'
+        minSdk 29
+        targetSdk 35
+        versionCode buildNumber
+        versionName "1.0.${buildNumber}"
+    }
+
+    // Fester Schlüssel, damit sich neue Versionen über die alte installieren lassen
+    signingConfigs {
+        release {
+            storeFile file('fotobruecke.jks')
+            storePassword 'fotobruecke'
+            keyAlias 'fotobruecke'
+            keyPassword 'fotobruecke'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

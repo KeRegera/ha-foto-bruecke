@@ -1,5 +1,5 @@
 name: Foto-Brücke
-version: "1.0.0"
+version: "1.2.0"
 slug: foto_bruecke
 description: Fotos vom Android hochladen und mit Aufnahmedatum und Ort aufs iPhone sichern
 url: https://github.com/KeRegera/ha-foto-bruecke
@@ -14,11 +14,20 @@ ingress_port: 8099
 ingress_stream: true
 panel_icon: mdi:image-sync
 panel_title: Foto-Brücke
+ports:
+  8098/tcp: 8098
+ports_description:
+  8098/tcp: Upload-Port für die Android-App (nur mit Schlüssel)
 map:
   - type: media
     read_only: false
 options:
+  immich_url: ""
+  immich_api_key: ""
   keep_days: 0
 schema:
+  immich_url: str?
+  immich_api_key: password?
+  app_token: password?
   keep_days: int(0,3650)
   timezone: str?

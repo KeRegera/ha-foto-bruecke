@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 from aiohttp import web
 
 import meta as metalib
+from immich import Immich, UUID_RE
 
 try:
     from PIL import Image, ImageOps
@@ -46,6 +47,8 @@ TMP_DIR = os.path.join(APP_DIR, "tmp")
 CACHE_DIR = os.environ.get("FB_CACHE", "/tmp/foto-bruecke-cache")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 PORT = int(os.environ.get("FB_PORT", "8099"))
+APP_PORT = int(os.environ.get("FB_APP_PORT", "8098"))        # Upload-Port für die Android-App
+DATA_DIR = os.environ.get("FB_DATA", "/data")
 
 ALLOWED_EXT = {".jpg", ".jpeg", ".heic", ".heif", ".png", ".webp", ".gif", ".dng",
                ".mp4", ".mov", ".m4v", ".3gp", ".webm"}
@@ -75,6 +78,32 @@ def get_tz() -> ZoneInfo:
 
 
 TZ = get_tz()
+
+
+def get_token() -> str:
+    """Upload-Schlüssel für die Android-App (Option oder automatisch erzeugt)."""
+    if OPTIONS.get("app_token"):
+        return str(OPTIONS["app_token"]).strip()
+    path = os.path.join(DATA_DIR, "app_token")
+    try:
+        with open(path, encoding="utf-8") as f:
+            tok = f.read().strip()
+            if tok:
+                return tok
+    except OSError:
+        pass
+    import secrets
+    tok = secrets.token_urlsafe(24)
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(tok)
+    except OSError as e:
+        log.warning("Token konnte nicht gespeichert werden: %s", e)
+    return tok
+
+
+APP_TOKEN = get_token()
 for d in (ROOT, META_DIR, THUMB_DIR, TMP_DIR, CACHE_DIR):
     os.makedirs(d, exist_ok=True)
 
@@ -86,6 +115,21 @@ def safe_name(name: str) -> str:
     name = os.path.basename(name or "foto")
     name = re.sub(r"[^\w.\- ()]+", "_", name, flags=re.UNICODE).strip(" .") or "foto"
     return name[:120]
+
+
+_EXT_MAP = {"jpeg": ".jpg", "jpg": ".jpg", "heic": ".heic", "heif": ".heif", "png": ".png",
+            "webp": ".webp", "gif": ".gif", "dng": ".dng", "mp4": ".mp4", "mov": ".mov",
+            "m4v": ".m4v", "3gp": ".3gp", "webm": ".webm", "avif": ".heif"}
+
+
+def sniff_ext(path: str) -> str | None:
+    """Dateityp anhand des Inhalts (exiftool), unabhängig vom Dateinamen."""
+    try:
+        out = subprocess.run(["exiftool", "-s3", "-FileTypeExtension", path],
+                             capture_output=True, text=True, timeout=60).stdout.strip().lower()
+    except Exception:  # noqa: BLE001
+        out = ""
+    return _EXT_MAP.get(out)
 
 
 def meta_path(item_id: str) -> str:
@@ -236,11 +280,9 @@ async def api_upload(req: web.Request) -> web.Response:
             await part.release()
             continue
 
-        name = safe_name(part.filename or "foto.jpg")
+        name = safe_name(part.filename or "foto")
         ext = os.path.splitext(name)[1].lower()
-        if ext not in ALLOWED_EXT:
-            raise web.HTTPBadRequest(text=f"Dateityp {ext or '?'} wird nicht unterstützt")
-        tmp = os.path.join(TMP_DIR, f"up_{os.getpid()}_{time.time_ns()}{ext}")
+        tmp = os.path.join(TMP_DIR, f"up_{os.getpid()}_{time.time_ns()}.bin")
         h = hashlib.sha256()
         size = 0
         try:
@@ -252,6 +294,20 @@ async def api_upload(req: web.Request) -> web.Response:
                     h.update(chunk)
                     size += len(chunk)
                     f.write(chunk)
+            log.info("Upload empfangen: %s (%s Bytes, %s)", name, size,
+                     req.headers.get("User-Agent", "?")[:120])
+            if size == 0:
+                raise web.HTTPBadRequest(text="Leere Datei erhalten")
+            # Typ am Inhalt erkennen - Android liefert manchmal Namen ohne Endung
+            real_ext = await asyncio.to_thread(sniff_ext, tmp)
+            if real_ext not in ALLOWED_EXT:
+                log.warning("Abgelehnt: %s (erkannt: %s)", name, real_ext or "unbekannt")
+                raise web.HTTPBadRequest(
+                    text=f"Kein Foto/Video erkannt ({real_ext or 'unbekannter Typ'})")
+            if ext not in ALLOWED_EXT:
+                name = name + real_ext            # z. B. "1000012345" -> "1000012345.jpg"
+            elif _EXT_MAP.get(ext.lstrip(".")) != real_ext:
+                name = os.path.splitext(name)[0] + real_ext   # falsche Endung korrigieren
             item_id = h.hexdigest()[:16]
             existing = load_item(item_id)
             if existing:
@@ -396,7 +452,7 @@ async def housekeeping(_app: web.Application):
                             log.info("Aufbewahrung abgelaufen, lösche %s", item["path"])
                             remove_item(item)
                 cutoff = time.time() - 2 * 86400
-                for d in (CACHE_DIR, TMP_DIR):
+                for d in (CACHE_DIR, TMP_DIR, IMMICH.cache):
                     for fn in os.listdir(d):
                         p = os.path.join(d, fn)
                         # ctime: Kopien tragen als mtime die Aufnahmezeit
@@ -409,6 +465,110 @@ async def housekeeping(_app: web.Application):
     task = asyncio.create_task(loop())
     yield
     task.cancel()
+
+
+# ---------------------------------------------------------------- Immich
+IMMICH = Immich(OPTIONS.get("immich_url", ""), OPTIONS.get("immich_api_key", ""), CACHE_DIR)
+
+
+def _immich_id(req: web.Request) -> str:
+    if not IMMICH.configured:
+        raise web.HTTPNotFound(text="Immich ist nicht eingerichtet")
+    asset_id = req.match_info["id"]
+    if not UUID_RE.match(asset_id):
+        raise web.HTTPBadRequest()
+    return asset_id
+
+
+async def im_status(_req):
+    return web.json_response(await IMMICH.status())
+
+
+async def im_albums(_req):
+    if not IMMICH.configured:
+        raise web.HTTPNotFound()
+    return web.json_response({"albums": await IMMICH.albums()})
+
+
+async def im_assets(req):
+    if not IMMICH.configured:
+        raise web.HTTPNotFound()
+    album = req.query.get("album") or None
+    if album and not UUID_RE.match(album):
+        raise web.HTTPBadRequest()
+    return web.json_response(await IMMICH.assets(album, req.query.get("page"), req.query.get("cursor")))
+
+
+async def im_thumb(req):
+    asset_id = _immich_id(req)
+    size = "preview" if req.query.get("size") == "big" else "thumbnail"
+    return await IMMICH.proxy(req, f"/assets/{asset_id}/thumbnail", {"size": size})
+
+
+async def im_original(req):
+    asset_id = _immich_id(req)
+    return await IMMICH.proxy(req, f"/assets/{asset_id}/original", cache="private, max-age=3600")
+
+
+async def im_ios(req):
+    asset_id = _immich_id(req)
+    path, item = await IMMICH.ios_copy(asset_id)
+    return web.FileResponse(path, headers={
+        "Content-Disposition": _disposition(item["name"], False),
+        "Content-Type": item.get("mime") or "application/octet-stream",
+        "Cache-Control": "private, max-age=3600"})
+
+
+async def immich_ctx(_app):
+    await IMMICH.start()
+    if IMMICH.configured:
+        st = await IMMICH.status()
+        log.info("Immich: %s", f"verbunden (v{st['version']})" if st.get("ok") else st.get("error"))
+    yield
+    await IMMICH.close()
+
+
+# ---------------------------------------------------------------- Android-App
+async def api_android(_req):
+    """Nur über Ingress (HA-Login) erreichbar: Daten zum Einrichten der Android-App."""
+    return web.json_response({"port": APP_PORT, "token": APP_TOKEN})
+
+
+def _check_token(req: web.Request) -> None:
+    import hmac
+    got = req.headers.get("X-Foto-Bruecke-Token", "")
+    auth = req.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        got = auth[7:]
+    if not hmac.compare_digest(got.strip(), APP_TOKEN):
+        raise web.HTTPUnauthorized(text="Falscher Schlüssel – App neu einrichten")
+
+
+async def app_ping(req):
+    _check_token(req)
+    return web.json_response({"ok": True, "name": "Foto-Brücke"})
+
+
+async def app_upload(req):
+    _check_token(req)
+    return await api_upload(req)
+
+
+async def app_server_ctx(_app):
+    """Zweiter, schlanker Server auf APP_PORT – nur Upload, nur mit Schlüssel."""
+    ext = web.Application(client_max_size=4 * 1024 ** 3)
+    ext.router.add_get("/api/ping", app_ping)
+    ext.router.add_post("/api/upload", app_upload)
+    runner = web.AppRunner(ext, access_log=None)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", APP_PORT)
+    try:
+        await site.start()
+        log.info("Upload-Port für die Android-App: %s", APP_PORT)
+    except OSError as e:
+        log.warning("Upload-Port %s nicht verfügbar: %s", APP_PORT, e)
+    yield
+    await runner.cleanup()
 
 
 @web.middleware
@@ -428,8 +588,17 @@ def make_app() -> web.Application:
     app.router.add_get("/api/ios/{id}", api_ios)
     app.router.add_get("/api/zip/{day}", api_zip)
     app.router.add_post("/api/delete", api_delete)
+    app.router.add_get("/api/android", api_android)
+    app.router.add_get("/api/immich/status", im_status)
+    app.router.add_get("/api/immich/albums", im_albums)
+    app.router.add_get("/api/immich/assets", im_assets)
+    app.router.add_get("/api/immich/thumb/{id}", im_thumb)
+    app.router.add_get("/api/immich/original/{id}", im_original)
+    app.router.add_get("/api/immich/ios/{id}", im_ios)
     app.router.add_static("/static", STATIC_DIR)
     app.cleanup_ctx.append(housekeeping)
+    app.cleanup_ctx.append(immich_ctx)
+    app.cleanup_ctx.append(app_server_ctx)
     return app
 
 

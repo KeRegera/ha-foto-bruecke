@@ -1,7 +1,16 @@
 configuration:
+  immich_url:
+    name: Immich-Adresse
+    description: "Adresse deines Immich-Servers, z. B. http://192.168.0.10:2283"
+  immich_api_key:
+    name: Immich-API-Schlüssel
+    description: "In Immich unter Kontoeinstellungen → API-Schlüssel erstellen (Rechte: asset.read, asset.view, asset.download, album.read)."
+  app_token:
+    name: App-Schlüssel
+    description: "Leer lassen = automatisch erzeugt. Die Android-App richtest du über den Link in der Foto-Brücke ein."
   keep_days:
     name: Aufbewahrung (Tage)
-    description: Fotos nach so vielen Tagen automatisch löschen. 0 = nie löschen.
+    description: "Fotos nach so vielen Tagen automatisch löschen. 0 = nie löschen."
   timezone:
     name: Zeitzone
-    description: Leer lassen, um die Zeitzone von Home Assistant zu verwenden (z. B. Europe/Berlin).
+    description: "Leer lassen, um die Zeitzone von Home Assistant zu verwenden (z. B. Europe/Berlin)."

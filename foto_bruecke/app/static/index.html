@@ -87,6 +87,16 @@ body.selecting .tile .chk{display:block}
   padding:10px 14px;border-radius:10px;font-size:14px;max-width:calc(100% - 32px);opacity:0;pointer-events:none;transition:opacity .2s}
 .toast.on{opacity:1}
 .hidden{display:none!important}
+.srcbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0 6px}
+.seg{display:flex;gap:2px;background:var(--line);border-radius:9px;padding:2px}
+.seg button{border:0;background:transparent;padding:6px 12px;border-radius:7px;font-size:14px;font-weight:600;color:var(--muted);cursor:pointer}
+.seg button.on{background:var(--card);color:var(--text);box-shadow:var(--shadow)}
+.srcbar select{flex:1;min-width:140px;max-width:100%;font:inherit;font-size:14px;padding:7px 8px;border-radius:9px;
+  border:1.5px solid var(--line);background:var(--card);color:var(--text)}
+.card h3{margin:0 0 6px;font-size:16px}
+.card.accent{border-left:4px solid var(--ok)}
+.status{font-size:13.5px;color:var(--muted);margin:6px 2px}
+#more{margin:16px 0}
 </style>
 </head>
 <body>
@@ -103,7 +113,36 @@ body.selecting .tile .chk{display:block}
 
 <main>
   <section id="tab-up" class="hidden">
+    <div class="card accent" id="appCard">
+      <h3>Aus der Galerie – mit Datum und Ort</h3>
+      <ol class="steps">
+        <li>In der <b>Galerie</b> Fotos lange antippen und mehrere markieren.</li>
+        <li><b>Teilen → Foto-Brücke</b> wählen. Fertig – die Fotos erscheinen hier in der Galerie.</li>
+      </ol>
+      <p class="hint">Dafür einmalig die kleine <b>Foto-Brücke-App</b> installieren. Nur eine App darf unter Android den Ort aus der Galerie lesen, Webseiten nie.</p>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+        <a class="btn sec" style="flex:1;min-width:140px;text-decoration:none" id="apkLink" target="_blank" rel="noopener"
+           href="https://github.com/KeRegera/ha-foto-bruecke/releases/latest">1. App laden</a>
+        <a class="btn" style="flex:1;min-width:140px;text-decoration:none" id="setupLink" href="#">2. App einrichten</a>
+      </div>
+      <details style="margin-top:10px"><summary class="hint" style="cursor:pointer">Von Hand einrichten</summary>
+        <dl class="hint" style="display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:8px 0 0">
+          <dt>Adresse</dt><dd style="margin:0;word-break:break-all"><code id="appUrl"></code></dd>
+          <dt>Schlüssel</dt><dd style="margin:0;word-break:break-all"><code id="appToken"></code></dd>
+        </dl>
+      </details>
+    </div>
+    <div class="card accent hidden" id="immichHow">
+      <h3>Mehrere Fotos aus der Galerie – mit Datum und Ort</h3>
+      <ol class="steps">
+        <li>In der <b>Galerie</b> Fotos lange antippen und mehrere markieren.</li>
+        <li><b>Teilen → Immich</b> wählen. Die Immich-App lädt sie mit Ort hoch.</li>
+        <li>Auf dem iPhone: Foto-Brücke → <b>Galerie → Immich</b> → auswählen → <b>Sichern</b>.</li>
+      </ol>
+      <p class="hint">Nur eine App wie Immich darf unter Android den Ort aus der Galerie lesen – Webseiten bekommen ihn dort nie.</p>
+    </div>
     <div class="card">
+      <h3 id="directTitle">Ohne App hochladen</h3>
       <button class="btn" id="pickDocs">Fotos aus „Dateien“ wählen</button>
       <ol class="steps">
         <li>Im nächsten Fenster <b>☰ → Bilder</b> oder <b>Interner Speicher → DCIM → Camera</b> öffnen.</li>
@@ -118,7 +157,13 @@ body.selecting .tile .chk{display:block}
   </section>
 
   <section id="tab-gal" class="hidden">
+    <div class="srcbar hidden" id="srcBar">
+      <div class="seg"><button data-src="immich">Immich</button><button data-src="local">Hochgeladen</button></div>
+      <select id="albumSel" class="hidden"><option value="">Alle Fotos</option></select>
+    </div>
+    <div class="status hidden" id="srcStatus"></div>
     <div id="gallery"></div>
+    <button class="btn sec hidden" id="more">Mehr laden</button>
   </section>
 </main>
 
@@ -165,6 +210,10 @@ function localParts(iso){
 }
 
 let items = [], byId = new Map(), selected = new Set(), selecting = false;
+let imm = {configured:false}, src = "local", album = "", next = null, loading = false;
+const store = {get(k){ try { return localStorage.getItem(k); } catch { return null; } },
+               set(k, v){ try { localStorage.setItem(k, v); } catch {} }};
+const API = it => (it && it._src === "immich") || (!it && src === "immich") ? "api/immich" : "api";
 const prepared = new Map();   // id -> Promise<File>
 const ready = new Map();      // id -> File
 
@@ -179,7 +228,7 @@ function showTab(name){
   $("#tab-up").classList.toggle("hidden", name !== "up");
   $("#tab-gal").classList.toggle("hidden", name !== "gal");
   $("#selBtn").classList.toggle("hidden", name !== "gal" || !items.length);
-  if (name === "gal") loadItems();
+  if (name === "gal") setSource(src);
   else setSelecting(false);
 }
 document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => showTab(b.dataset.tab));
@@ -192,8 +241,11 @@ $("#fileGallery").onchange = e => enqueue(e.target.files, e.target);
 
 const queue = []; let running = 0;
 function enqueue(fileList, input){
-  const files = [...fileList]; input.value = "";
-  if (!files.length) return;
+  const files = [...(fileList || [])]; input.value = "";
+  if (!files.length){
+    toast("Es wurde keine Datei übergeben.", 5000);
+    return;
+  }
   $("#queueCard").classList.remove("hidden");
   for (const f of files){
     const row = document.createElement("div");
@@ -219,7 +271,9 @@ function upload({f, row}){
     xhr.upload.onprogress = e => { if (e.lengthComputable){ bar.style.width = (e.loaded/e.total*100)+"%"; s.textContent = `${fmtSize(f.size)} · ${Math.round(e.loaded/e.total*100)} %`; } };
     xhr.onload = () => {
       row.querySelector(".bar").remove();
-      if (xhr.status !== 200){ s.innerHTML = `<span class="bad">Fehler: ${esc(xhr.responseText || xhr.status)}</span>`; return resolve(); }
+      if (xhr.status !== 200){
+        const msg = xhr.status === 413 ? "Datei zu groß" : (xhr.responseText || "").replace(/<[^>]*>/g, " ").trim().slice(0, 160);
+        s.innerHTML = `<span class="bad">Fehler ${xhr.status}: ${esc(msg || "unbekannt")}</span>`; return resolve(); }
       const {item, duplicate} = JSON.parse(xhr.responseText);
       if (item.thumb) row.querySelector("img").src = `api/thumb/${item.id}`;
       const p = localParts(item.taken);
@@ -235,23 +289,95 @@ function upload({f, row}){
       }
       items = []; resolve();
     };
-    xhr.onerror = () => { s.innerHTML = `<span class="bad">Verbindung abgebrochen</span>`; resolve(); };
+    xhr.onerror = () => { row.querySelector(".bar")?.remove(); s.innerHTML = `<span class="bad">Verbindung abgebrochen – nochmal versuchen</span>`; resolve(); };
     xhr.send(fd);
   });
 }
 
 // ------------------------------------------------------------- Galerie
-async function loadItems(){
-  const r = await fetch("api/items", {cache: "no-store"});
-  const data = await r.json();
-  items = data.items; byId = new Map(items.map(i => [i.id, i]));
-  for (const id of [...selected]) if (!byId.has(id)) selected.delete(id);
+async function loadItems(append = false){
+  if (loading) return; loading = true;
+  const st = $("#srcStatus");
+  try {
+    let list = [];
+    if (src === "immich"){
+      const q = new URLSearchParams();
+      if (album) q.set("album", album);
+      if (append && next){ if (next.cursor) q.set("cursor", next.cursor); else if (next.page) q.set("page", next.page); }
+      const r = await fetch("api/immich/assets?" + q, {cache: "no-store"});
+      if (!r.ok) throw new Error(await r.text());
+      const data = await r.json();
+      list = data.items;
+      next = (data.nextCursor || data.nextPage) ? {cursor: data.nextCursor, page: data.nextPage} : null;
+      st.classList.add("hidden");
+    } else {
+      const r = await fetch("api/items", {cache: "no-store"});
+      list = (await r.json()).items; next = null;
+    }
+    list.forEach(i => i._src = src);
+    items = append ? items.concat(list.filter(i => !byId.has(i.id))) : list;
+    byId = new Map(items.map(i => [i.id, i]));
+    for (const id of [...selected]) if (!byId.has(id)) selected.delete(id);
+  } catch (e){
+    st.textContent = "Immich nicht erreichbar: " + String(e.message || e).slice(0, 200);
+    st.classList.remove("hidden");
+    if (!append){ items = []; byId = new Map(); }
+  } finally { loading = false; }
+  $("#more").classList.toggle("hidden", !next);
   render();
+}
+$("#more").onclick = () => loadItems(true);
+
+function setSource(s){
+  src = s; store.set("fb_src", s); next = null; selected.clear();
+  document.querySelectorAll(".seg button").forEach(b => b.classList.toggle("on", b.dataset.src === s));
+  $("#albumSel").classList.toggle("hidden", s !== "immich");
+  $("#delSel").classList.toggle("hidden", s === "immich");
+  loadItems();
+}
+document.querySelectorAll(".seg button").forEach(b => b.onclick = () => setSource(b.dataset.src));
+$("#albumSel").onchange = e => { album = e.target.value; store.set("fb_album", album); selected.clear(); next = null; loadItems(); };
+
+async function initAndroid(){
+  try {
+    const {port, token} = await (await fetch("api/android", {cache: "no-store"})).json();
+    const url = `http://${location.hostname}:${port}`;
+    $("#appUrl").textContent = url; $("#appToken").textContent = token;
+    // Android löst "homeassistant.local" oder Fernzugriffs-Adressen oft nicht auf -> auf IP hinweisen
+    if (!/^\d+\.\d+\.\d+\.\d+$/.test(location.hostname)){
+      const h = document.createElement("p"); h.className = "hint warn";
+      h.innerHTML = `Du hast Home Assistant über <b>${esc(location.hostname)}</b> geöffnet. Klappt die Verbindung in der App nicht, dort als Adresse die <b>IP</b> von Home Assistant eintragen, z. B. <code>http://192.168.0.10:${port}</code>.`;
+      $("#appCard details").before(h);
+    }
+    $("#setupLink").href = `fotobruecke://setup?url=${encodeURIComponent(url)}&token=${encodeURIComponent(token)}`;
+    if (!isAndroid) $("#setupLink").onclick = e => { e.preventDefault(); toast("Diesen Link auf dem Android-Handy öffnen.", 4000); };
+  } catch { $("#appCard").classList.add("hidden"); }
+}
+
+async function initImmich(){
+  try { imm = await (await fetch("api/immich/status", {cache: "no-store"})).json(); } catch { imm = {configured:false}; }
+  if (!imm.configured){ src = "local"; return; }
+  $("#srcBar").classList.remove("hidden");
+  $("#immichHow").classList.remove("hidden");
+  src = store.get("fb_src") || "immich";
+  if (!imm.ok){
+    $("#srcStatus").textContent = "Immich nicht erreichbar: " + (imm.error || "unbekannter Fehler");
+    $("#srcStatus").classList.remove("hidden");
+  }
+  try {
+    const {albums} = await (await fetch("api/immich/albums")).json();
+    const sel = $("#albumSel");
+    for (const a of albums){ const o = document.createElement("option"); o.value = a.id; o.textContent = `${a.name} (${a.count})`; sel.append(o); }
+    const saved = store.get("fb_album");
+    if (saved && albums.some(a => a.id === saved)){ album = saved; sel.value = saved; }
+  } catch {}
 }
 function render(){
   const g = $("#gallery");
   $("#selBtn").classList.toggle("hidden", !items.length || $("#tab-gal").classList.contains("hidden"));
-  if (!items.length){ g.innerHTML = `<div class="empty">Noch keine Fotos.<br>Lade sie im Reiter „Hochladen“ vom Android hoch.</div>`; updateActions(); return; }
+  if (!items.length){ g.innerHTML = src === "immich"
+    ? `<div class="empty">Keine Fotos in Immich${album ? " in diesem Album" : ""}.</div>`
+    : `<div class="empty">Noch keine Fotos.<br>Lade sie im Reiter „Hochladen“ vom Android hoch.</div>`; updateActions(); return; }
   const days = new Map();
   for (const it of items){ if (!days.has(it.day)) days.set(it.day, []); days.get(it.day).push(it); }
   g.innerHTML = "";
@@ -269,7 +395,7 @@ function render(){
     const grid = document.createElement("div"); grid.className = "grid";
     for (const it of list){
       const t = document.createElement("button"); t.className = "tile"; t.dataset.id = it.id;
-      t.innerHTML = (it.thumb ? `<img loading="lazy" src="api/thumb/${it.id}" alt="">` : "")
+      t.innerHTML = (it.thumb ? `<img loading="lazy" src="${API(it)}/thumb/${it.id}" alt="">` : "")
         + (it.kind === "video" ? `<span class="b">▶ ${fmtDur(it.duration)}</span>` : "")
         + ((it.warnings || []).includes("ort") ? `<span class="w" title="Kein Ort">kein Ort</span>` : "")
         + `<span class="chk"></span>`;
@@ -302,7 +428,7 @@ function toggle(id, force){
 function prepare(id){
   if (!prepared.has(id)){
     const it = byId.get(id);
-    const p = fetch(`api/ios/${id}`).then(r => { if (!r.ok) throw new Error(r.status); return r.blob(); })
+    const p = fetch(`${API(it)}/ios/${id}`).then(r => { if (!r.ok) throw new Error(r.status); return r.blob(); })
       .then(b => { const f = new File([b], it.name, {type: b.type || "application/octet-stream", lastModified: Date.parse(it.taken) || Date.now()}); ready.set(id, f); return f; })
       .catch(e => { prepared.delete(id); throw e; });
     prepared.set(id, p);
@@ -367,8 +493,8 @@ function openViewer(id){
   $("#vTitle").textContent = it.name;
   const media = $("#vMedia");
   media.innerHTML = it.kind === "video"
-    ? `<video controls playsinline preload="metadata" poster="api/thumb/${id}?size=big" src="api/original/${id}?inline=1"></video>`
-    : `<img src="api/thumb/${id}?size=big" alt="">`;
+    ? `<video controls playsinline preload="metadata" poster="${API(it)}/thumb/${id}?size=big" src="${API(it)}/original/${id}?inline=1"></video>`
+    : `<img src="${API(it)}/thumb/${id}?size=big" alt="">`;
   const p = localParts(it.taken);
   const src = {"Dateiname":" (aus Dateiname)", "Dateidatum":" (nur Dateidatum)"}[it.taken_source] || "";
   const maps = it.lat != null
@@ -376,12 +502,13 @@ function openViewer(id){
     : null;
   $("#vInfo").innerHTML =
     `<dt>Aufnahme</dt><dd>${p ? `${p.date}, ${p.time} Uhr <span style="color:var(--muted)">UTC${esc(p.off)}</span>${src}` : `<span class="warn">unbekannt</span>`}</dd>`
-    + `<dt>Ort</dt><dd>${maps ? `<a href="${maps}" target="_blank" rel="noopener">${(+it.lat).toFixed(5)}, ${(+it.lon).toFixed(5)}</a>` : `<span class="warn">nicht vorhanden</span>`}</dd>`
+    + `<dt>Ort</dt><dd>${maps ? `<a href="${maps}" target="_blank" rel="noopener">${it.city ? esc(it.city) + " · " : ""}${(+it.lat).toFixed(5)}, ${(+it.lon).toFixed(5)}</a>` : `<span class="warn">nicht vorhanden</span>`}</dd>`
     + (it.camera ? `<dt>Kamera</dt><dd>${esc(it.camera)}</dd>` : "")
-    + `<dt>Größe</dt><dd>${fmtSize(it.size)}${it.kind === "video" ? " · " + fmtDur(it.duration) : ""}</dd>`;
+    + (it.size ? `<dt>Größe</dt><dd>${fmtSize(it.size)}` : `<dt>Typ</dt><dd>${it.kind === "video" ? "Video" : "Foto"}`) + `${it.kind === "video" ? " · " + fmtDur(it.duration) : ""}</dd>`;
   const b = $("#vSave"); b.disabled = !ready.has(id); b.textContent = ready.has(id) ? "Sichern" : "Lädt …";
   prepare(id).then(() => { if (vId === id){ b.disabled = false; b.textContent = "Sichern"; } })
              .catch(() => { if (vId === id) b.textContent = "Fehler"; });
+  $("#vDel").classList.toggle("hidden", it._src === "immich");
   const idx = items.findIndex(i => i.id === id);
   $("#vPrev").disabled = idx <= 0; $("#vNext").disabled = idx >= items.length - 1;
 }
@@ -390,12 +517,13 @@ $("#vClose").onclick = closeViewer;
 $("#vPrev").onclick = () => { const i = items.findIndex(x => x.id === vId); if (i > 0) openViewer(items[i-1].id); };
 $("#vNext").onclick = () => { const i = items.findIndex(x => x.id === vId); if (i < items.length-1) openViewer(items[i+1].id); };
 $("#vSave").onclick = () => saveFiles([vId]);
-$("#vOrig").onclick = () => { const a = document.createElement("a"); a.href = `api/original/${vId}`; a.download = byId.get(vId).name; document.body.append(a); a.click(); a.remove(); };
+$("#vOrig").onclick = () => { const it = byId.get(vId); const a = document.createElement("a"); a.href = `${API(it)}/original/${vId}`; a.download = byId.get(vId).name; document.body.append(a); a.click(); a.remove(); };
 $("#vDel").onclick = async () => { if (!confirm("Diese Datei auf dem Server löschen?")) return; await del([vId]); closeViewer(); await loadItems(); toast("Gelöscht"); };
 document.addEventListener("keydown", e => { if (!vId) return; if (e.key === "Escape") closeViewer(); if (e.key === "ArrowLeft") $("#vPrev").click(); if (e.key === "ArrowRight") $("#vNext").click(); });
 
 // ------------------------------------------------------------- Start
-showTab(isAndroid ? "up" : "gal");
+initAndroid();
+initImmich().then(() => showTab(isAndroid ? "up" : "gal"));
 </script>
 </body>
 </html>
