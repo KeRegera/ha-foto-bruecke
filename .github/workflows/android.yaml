@@ -1,0 +1,46 @@
+name: Android-App bauen
+
+on:
+  push:
+    paths:
+      - "android/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: APK bauen
+        working-directory: android
+        run: gradle --no-daemon assembleRelease
+
+      - name: APK umbenennen
+        run: cp android/app/build/outputs/apk/release/app-release.apk FotoBruecke.apk
+
+      - name: Als Release veröffentlichen
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app-${{ github.run_number }}
+          name: Foto-Brücke Android-App (Build ${{ github.run_number }})
+          body: |
+            Auf dem Android-Handy herunterladen und installieren.
+            Danach in Home Assistant → Foto-Brücke → Hochladen auf „App einrichten“ tippen.
+          files: FotoBruecke.apk
+          make_latest: true
